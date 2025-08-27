@@ -52,6 +52,14 @@ interface ExportPayload {
 // Show UI
 figma.showUI(__html__, { width: 300, height: 400 });
 
+// Listen for selection changes
+figma.on('selectionchange', () => {
+  figma.ui.postMessage({
+    type: 'selectionChange',
+    selectionCount: figma.currentPage.selection.length,
+  });
+});
+
 async function exportSelectedElements(): Promise<ExportPayload> {
   const selection = figma.currentPage.selection;
   
@@ -324,6 +332,12 @@ async function sendToFlaskBridge(payload: ExportPayload): Promise<void> {
 // Handle UI messages
 figma.ui.onmessage = async (msg) => {
   switch (msg.type) {
+    case 'getSelection':
+      figma.ui.postMessage({
+        type: 'selectionChange',
+        selectionCount: figma.currentPage.selection.length,
+      });
+      break;
     case 'export':
       try {
         figma.ui.postMessage({
