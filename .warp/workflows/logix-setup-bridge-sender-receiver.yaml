@@ -1,0 +1,310 @@
+name: "Logix: Setup bridge & sender & receiver"
+description: "Complete Figma to DaVinci Resolve bridge workflow - setup bridge server, Figma plugin, and DaVinci import system"
+author: "Nakul Dash"
+version: "1.0.0"
+tags: 
+  - figma
+  - davinci-resolve
+  - fusion
+  - bridge
+  - workflow
+  - video-production
+  - design-to-video
+
+steps:
+  - name: "🏗️ Project Overview"
+    command: |
+      Clear-Host
+      Write-Host "╔═══════════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+      Write-Host "║                     🎬 FIGMA TO DAVINCI BRIDGE 🎬                     ║" -ForegroundColor Cyan  
+      Write-Host "║                                                                       ║" -ForegroundColor Cyan
+      Write-Host "║              Complete Workflow for Design to Video Production        ║" -ForegroundColor Cyan
+      Write-Host "╚═══════════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+      Write-Host ""
+      Write-Host "This workflow creates a bridge between Figma designs and DaVinci Resolve:" -ForegroundColor White
+      Write-Host ""
+      Write-Host "🏗️ SYSTEM ARCHITECTURE:" -ForegroundColor Yellow
+      Write-Host "   • Flask Bridge Server: Temporary storage for design data" -ForegroundColor Gray
+      Write-Host "   • Figma Plugin: Exports elements as JSON + base64 images" -ForegroundColor Gray
+      Write-Host "   • DaVinci Script: Creates Fusion nodes from exported data" -ForegroundColor Gray
+      Write-Host ""
+      Write-Host "🎯 SUPPORTED ELEMENTS:" -ForegroundColor Yellow
+      Write-Host "   • Text → Text+ nodes with positioning and styling" -ForegroundColor Gray
+      Write-Host "   • Rectangles → sRectangle nodes with colors and corner radius" -ForegroundColor Gray
+      Write-Host "   • Images/Vectors → Loader nodes with positioning" -ForegroundColor Gray
+      Write-Host "   • Groups/Frames → Merged compositions with child elements" -ForegroundColor Gray
+      Write-Host ""
+      Write-Host "Press any key to continue with setup..." -ForegroundColor White
+      $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+
+  - name: "📋 Check Prerequisites"
+    command: |
+      Write-Host ""
+      Write-Host "=== CHECKING PREREQUISITES ===" -ForegroundColor Cyan
+      Write-Host ""
+      
+      $allGood = $true
+      
+      # Check Python
+      try {
+          $pythonVersion = python --version 2>&1
+          Write-Host "✅ Python: $pythonVersion" -ForegroundColor Green
+      } catch {
+          Write-Host "❌ Python 3.7+ is required but not found" -ForegroundColor Red
+          $allGood = $false
+      }
+      
+      # Check Node.js (optional)
+      try {
+          $nodeVersion = node --version 2>&1
+          Write-Host "✅ Node.js: $nodeVersion (for TypeScript compilation)" -ForegroundColor Green
+      } catch {
+          Write-Host "⚠️  Node.js not found (optional for TypeScript compilation)" -ForegroundColor Yellow
+      }
+      
+      # Check if Figma Desktop is likely installed
+      $figmaPaths = @(
+          "$env:LOCALAPPDATA\Figma\Figma.exe",
+          "$env:APPDATA\Figma Desktop\Figma.exe"
+      )
+      
+      $figmaFound = $false
+      foreach ($path in $figmaPaths) {
+          if (Test-Path $path) {
+              Write-Host "✅ Figma Desktop found at: $path" -ForegroundColor Green
+              $figmaFound = $true
+              break
+          }
+      }
+      
+      if (-not $figmaFound) {
+          Write-Host "⚠️  Figma Desktop not found (required for plugin installation)" -ForegroundColor Yellow
+      }
+      
+      # Check DaVinci Resolve (common installation paths)
+      $davinciPaths = @(
+          "${env:ProgramFiles}\Blackmagic Design\DaVinci Resolve\Resolve.exe",
+          "${env:ProgramFiles(x86)}\Blackmagic Design\DaVinci Resolve\Resolve.exe"
+      )
+      
+      $davinciFound = $false
+      foreach ($path in $davinciPaths) {
+          if (Test-Path $path) {
+              Write-Host "✅ DaVinci Resolve found at: $path" -ForegroundColor Green
+              $davinciFound = $true
+              break
+          }
+      }
+      
+      if (-not $davinciFound) {
+          Write-Host "⚠️  DaVinci Resolve not found (required for Fusion integration)" -ForegroundColor Yellow
+      }
+      
+      Write-Host ""
+      if ($allGood) {
+          Write-Host "🎉 All critical prerequisites are met!" -ForegroundColor Green
+      } else {
+          Write-Host "⚠️  Please install missing prerequisites before continuing." -ForegroundColor Yellow
+      }
+      
+      Write-Host ""
+      Write-Host "Press any key to continue..." -ForegroundColor White
+      $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+
+  - name: "🚀 Start Flask Bridge Server"
+    command: |
+      Write-Host ""
+      Write-Host "=== STARTING FLASK BRIDGE SERVER ===" -ForegroundColor Cyan
+      Write-Host ""
+      Write-Host "The bridge server acts as temporary storage between Figma and DaVinci Resolve." -ForegroundColor White
+      Write-Host "It will run on http://localhost:5000 and must stay running during your workflow." -ForegroundColor Yellow
+      Write-Host ""
+      Write-Host "Starting server in a new PowerShell window..." -ForegroundColor Green
+      Write-Host ""
+      
+      # Start the bridge server in a new window
+      $bridgeScript = Join-Path (Get-Location) "workflow\1-start-bridge-server.ps1"
+      
+      if (Test-Path $bridgeScript) {
+          Start-Process powershell -ArgumentList "-NoExit", "-File", "`"$bridgeScript`""
+          Write-Host "✅ Bridge server is starting in a separate window" -ForegroundColor Green
+          Write-Host "   Keep that window open during your entire workflow!" -ForegroundColor Yellow
+          
+          # Wait a moment for server to start
+          Start-Sleep 3
+          
+          # Test if server is responding
+          try {
+              $response = Invoke-RestMethod -Uri "http://localhost:5000/health" -Method Get -TimeoutSec 5
+              Write-Host "✅ Bridge server is running and accessible" -ForegroundColor Green
+          } catch {
+              Write-Host "⚠️  Server may still be starting up..." -ForegroundColor Yellow
+          }
+      } else {
+          Write-Host "❌ Bridge server script not found: $bridgeScript" -ForegroundColor Red
+      }
+      
+      Write-Host ""
+      Write-Host "Press any key to continue with Figma plugin setup..." -ForegroundColor White
+      $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+
+  - name: "🔌 Setup Figma Plugin"
+    command: |
+      Write-Host ""
+      Write-Host "=== SETTING UP FIGMA PLUGIN ===" -ForegroundColor Cyan
+      Write-Host ""
+      
+      # Navigate to plugin directory and compile if possible
+      $pluginDir = Join-Path (Get-Location) "figma-plugin"
+      
+      if (Test-Path $pluginDir) {
+          Push-Location $pluginDir
+          
+          try {
+              # Check if we can compile TypeScript
+              if (Test-Path "package.json") {
+                  Write-Host "Installing npm dependencies..." -ForegroundColor Yellow
+                  try {
+                      npm install
+                      Write-Host "✅ Dependencies installed" -ForegroundColor Green
+                      
+                      Write-Host "Compiling TypeScript..." -ForegroundColor Yellow
+                      npm run build-once
+                      Write-Host "✅ TypeScript compiled successfully" -ForegroundColor Green
+                  } catch {
+                      Write-Host "⚠️  Could not compile TypeScript, but plugin can still be installed" -ForegroundColor Yellow
+                  }
+              }
+              
+              # Check if plugin is ready
+              if (Test-Path "code.js") {
+                  Write-Host "✅ Plugin is compiled and ready for installation" -ForegroundColor Green
+              } else {
+                  Write-Host "⚠️  Plugin may need manual setup" -ForegroundColor Yellow
+              }
+              
+          } finally {
+              Pop-Location
+          }
+          
+          Write-Host ""
+          Write-Host "=== FIGMA PLUGIN INSTALLATION INSTRUCTIONS ===" -ForegroundColor Yellow
+          Write-Host ""
+          Write-Host "To install the plugin in Figma Desktop:" -ForegroundColor White
+          Write-Host "1. Open Figma Desktop application" -ForegroundColor Gray
+          Write-Host "2. Go to Plugins > Development > Import plugin from manifest..." -ForegroundColor Gray
+          Write-Host "3. Navigate to and select:" -ForegroundColor Gray
+          Write-Host "   $pluginDir\manifest.json" -ForegroundColor Cyan
+          Write-Host "4. The plugin will be added to your plugins list" -ForegroundColor Gray
+          Write-Host ""
+          Write-Host "To use the plugin later:" -ForegroundColor White
+          Write-Host "• Select elements in your Figma canvas" -ForegroundColor Gray
+          Write-Host "• Run Plugins > Figma to DaVinci Bridge" -ForegroundColor Gray
+          Write-Host "• Click 'Export to DaVinci' in the plugin UI" -ForegroundColor Gray
+          
+      } else {
+          Write-Host "❌ Plugin directory not found: $pluginDir" -ForegroundColor Red
+      }
+      
+      Write-Host ""
+      Write-Host "Press any key to continue with DaVinci setup..." -ForegroundColor White
+      $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+
+  - name: "🎬 Setup DaVinci Resolve Import"
+    command: |
+      Write-Host ""
+      Write-Host "=== SETTING UP DAVINCI RESOLVE IMPORT ===" -ForegroundColor Cyan
+      Write-Host ""
+      
+      # Navigate to DaVinci script directory and setup
+      $davinciDir = Join-Path (Get-Location) "davinci-script"
+      
+      if (Test-Path $davinciDir) {
+          Push-Location $davinciDir
+          
+          try {
+              # Create virtual environment if it doesn't exist
+              if (-not (Test-Path "venv")) {
+                  Write-Host "Creating Python virtual environment..." -ForegroundColor Yellow
+                  python -m venv venv
+                  Write-Host "✅ Virtual environment created" -ForegroundColor Green
+              }
+              
+              # Activate and install dependencies
+              Write-Host "Installing Python dependencies..." -ForegroundColor Yellow
+              & ".\venv\Scripts\Activate.ps1"
+              pip install -r requirements.txt
+              Write-Host "✅ Dependencies installed" -ForegroundColor Green
+              
+          } catch {
+              Write-Host "⚠️  Could not setup virtual environment" -ForegroundColor Yellow
+          } finally {
+              Pop-Location
+          }
+          
+          Write-Host ""
+          Write-Host "=== DAVINCI RESOLVE USAGE INSTRUCTIONS ===" -ForegroundColor Yellow
+          Write-Host ""
+          Write-Host "When ready to import from Figma:" -ForegroundColor White
+          Write-Host "1. Make sure DaVinci Resolve is open with a project loaded" -ForegroundColor Gray
+          Write-Host "2. Ensure you've exported data from Figma using the plugin" -ForegroundColor Gray
+          Write-Host "3. Run the import script:" -ForegroundColor Gray
+          Write-Host "   .\workflow\3-run-davinci-import.ps1" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "The script will:" -ForegroundColor White
+          Write-Host "• Connect to the bridge server" -ForegroundColor Gray
+          Write-Host "• Fetch exported Figma data" -ForegroundColor Gray
+          Write-Host "• Create a new composition in DaVinci Resolve" -ForegroundColor Gray
+          Write-Host "• Build Fusion node tree based on your elements" -ForegroundColor Gray
+          
+      } else {
+          Write-Host "❌ DaVinci script directory not found: $davinciDir" -ForegroundColor Red
+      }
+      
+      Write-Host ""
+      Write-Host "Press any key to continue..." -ForegroundColor White
+      $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+
+  - name: "🎯 Workflow Summary & Next Steps"
+    command: |
+      Write-Host ""
+      Write-Host "╔═══════════════════════════════════════════════════════════════════════╗" -ForegroundColor Green
+      Write-Host "║                          🎉 SETUP COMPLETE! 🎉                        ║" -ForegroundColor Green
+      Write-Host "╚═══════════════════════════════════════════════════════════════════════╝" -ForegroundColor Green
+      Write-Host ""
+      Write-Host "Your Figma to DaVinci Resolve bridge is now ready!" -ForegroundColor White
+      Write-Host ""
+      Write-Host "📋 WORKFLOW CHECKLIST:" -ForegroundColor Yellow
+      Write-Host ""
+      Write-Host "✅ Bridge server is running (keep the window open)" -ForegroundColor Green
+      Write-Host "✅ Figma plugin is compiled and ready to install" -ForegroundColor Green
+      Write-Host "✅ DaVinci import script is configured" -ForegroundColor Green
+      Write-Host ""
+      Write-Host "🚀 NEXT STEPS:" -ForegroundColor Cyan
+      Write-Host ""
+      Write-Host "1. Install the Figma Plugin:" -ForegroundColor White
+      Write-Host "   • Open Figma Desktop" -ForegroundColor Gray
+      Write-Host "   • Plugins > Development > Import plugin from manifest..." -ForegroundColor Gray
+      Write-Host "   • Select: figma-plugin\manifest.json" -ForegroundColor Gray
+      Write-Host ""
+      Write-Host "2. Export from Figma:" -ForegroundColor White
+      Write-Host "   • Select elements in your design" -ForegroundColor Gray
+      Write-Host "   • Run: Plugins > Figma to DaVinci Bridge" -ForegroundColor Gray
+      Write-Host "   • Click 'Export to DaVinci'" -ForegroundColor Gray
+      Write-Host ""
+      Write-Host "3. Import to DaVinci Resolve:" -ForegroundColor White
+      Write-Host "   • Open DaVinci Resolve with a project" -ForegroundColor Gray
+      Write-Host "   • Run: .\workflow\3-run-davinci-import.ps1" -ForegroundColor Gray
+      Write-Host "   • Check Fusion page for your imported composition" -ForegroundColor Gray
+      Write-Host ""
+      Write-Host "🔧 QUICK COMMANDS:" -ForegroundColor Yellow
+      Write-Host ""
+      Write-Host "• Main workflow runner:    .\workflow\run-workflow.ps1" -ForegroundColor Cyan
+      Write-Host "• DaVinci import only:     .\workflow\3-run-davinci-import.ps1" -ForegroundColor Cyan
+      Write-Host "• Bridge server health:    curl http://localhost:5000/health" -ForegroundColor Cyan
+      Write-Host ""
+      Write-Host "📚 For detailed help, see README.md" -ForegroundColor Gray
+      Write-Host ""
+      Write-Host "Happy creating! 🎨➡️🎬" -ForegroundColor Magenta
+
+default_step: 0

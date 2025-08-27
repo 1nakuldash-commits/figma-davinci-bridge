@@ -1,0 +1,15 @@
+{
+  "name": "figma-davinci-bridge-plugin",
+  "version": "1.0.0",
+  "description": "Export Figma elements to DaVinci Resolve via bridge server",
+  "main": "code.js",
+  "scripts": {
+    "build": "tsc --watch",
+    "build-once": "tsc",
+    "dev": "tsc --watch"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.77.0",
+    "typescript": "^5.0.0"
+  }
+}
