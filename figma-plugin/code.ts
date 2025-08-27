@@ -154,7 +154,7 @@ async function processNode(node: SceneNode): Promise<FigmaElement | null> {
 }
 
 async function processGeometricNode(node: GeometryMixin & SceneNode, baseElement: Partial<FigmaElement>): Promise<FigmaElement> {
-  const element = { ...baseElement } as FigmaElement;
+  const element = Object.assign({}, baseElement) as FigmaElement;
   
   // Add geometric properties
   element.fills = node.fills;
@@ -181,7 +181,7 @@ async function processGeometricNode(node: GeometryMixin & SceneNode, baseElement
 }
 
 async function processTextNode(node: TextNode, baseElement: Partial<FigmaElement>): Promise<FigmaElement> {
-  const element = { ...baseElement } as FigmaElement;
+  const element = Object.assign({}, baseElement) as FigmaElement;
   
   // Add text properties
   element.characters = node.characters;
@@ -204,7 +204,7 @@ async function processTextNode(node: TextNode, baseElement: Partial<FigmaElement
 }
 
 async function processContainerNode(node: ChildrenMixin & SceneNode, baseElement: Partial<FigmaElement>): Promise<FigmaElement> {
-  const element = { ...baseElement } as FigmaElement;
+  const element = Object.assign({}, baseElement) as FigmaElement;
   
   // Add container properties
   if ('fills' in node) {
@@ -239,7 +239,7 @@ async function processContainerNode(node: ChildrenMixin & SceneNode, baseElement
 }
 
 async function processImageNode(node: SceneNode, baseElement: Partial<FigmaElement>): Promise<FigmaElement> {
-  const element = { ...baseElement } as FigmaElement;
+  const element = Object.assign({}, baseElement) as FigmaElement;
   
   // Export the image
   try {
@@ -253,7 +253,7 @@ async function processImageNode(node: SceneNode, baseElement: Partial<FigmaEleme
 }
 
 async function processGenericNode(node: SceneNode, baseElement: Partial<FigmaElement>): Promise<FigmaElement> {
-  const element = { ...baseElement } as FigmaElement;
+  const element = Object.assign({}, baseElement) as FigmaElement;
   
   // Export as image
   try {
