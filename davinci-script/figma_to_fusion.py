@@ -47,26 +47,39 @@ class FigmaToFusion:
             self.initialize_resolve()
     
     def initialize_resolve(self):
-        """Initialize DaVinci Resolve components"""
+        """Initialize DaVinci Resolve components and get the active composition."""
         try:
             self.project_manager = self.resolve.GetProjectManager()
             self.project = self.project_manager.GetCurrentProject()
             
             if not self.project:
-                print("Error: No project is currently open in DaVinci Resolve")
+                print("Error: No project is currently open in DaVinci Resolve.")
                 return False
             
             self.media_pool = self.project.GetMediaPool()
             
-            # Switch to Fusion page
-            self.resolve.OpenPage("fusion")
-            self.fusion_page = self.resolve.GetCurrentPage()
+            # Ensure we are on the Fusion page
+            if self.resolve.GetCurrentPage() != "fusion":
+                self.resolve.OpenPage("fusion")
             
+            self.fusion_page = self.resolve.GetCurrentPage()
+            self.composition = self.fusion_page.GetCurrentComp()
+
+            if not self.composition:
+                print("Error: No active Fusion composition.")
+                print("Please open a timeline and go to the Fusion page before running the script.")
+                return False
+
+            # Get composition dimensions
+            self.fusion_width = self.composition.GetAttrs("COMPN_Width")
+            self.fusion_height = self.composition.GetAttrs("COMPN_Height")
+
             print(f"Successfully connected to project: {self.project.GetName()}")
+            print(f"Working with active composition: {self.composition.GetAttrs('COMPS_Name')} ({self.fusion_width}x{self.fusion_height})")
             return True
             
         except Exception as e:
-            print(f"Error initializing DaVinci Resolve: {e}")
+            print(f"An unexpected error occurred during initialization: {e}")
             return False
     
     def fetch_figma_data(self, data_id: Optional[str] = None) -> Optional[Dict]:
@@ -127,48 +140,8 @@ class FigmaToFusion:
             print(f"Error saving image for {element_name}: {e}")
             return None
     
-    def create_new_composition(self, name: str, width: int = 1920, height: int = 1080, frame_rate: float = 24.0) -> bool:
-        """
-        Create a new Fusion Composition clip in the Media Pool.
-        This is a more robust method than creating a new timeline.
-        """
-        if not self.resolve:
-            print(f"Debug: Would create new Fusion Composition clip: {name}")
-            self.composition = "debug_comp"  # Placeholder for debug mode
-            return True
-        
-        try:
-            # Define settings for the new Fusion Composition
-            comp_settings = {
-                "Name": name,
-                "Width": width,
-                "Height": height,
-                "Rate": frame_rate,
-            }
-
-            # Create the Fusion Composition clip in the root folder of the Media Pool
-            media_pool_folder = self.media_pool.GetRootFolder()
-            new_comp_clip = self.media_pool.CreateFusionComposition(media_pool_folder, comp_settings)
-
-            if new_comp_clip:
-                # Get the actual composition object from the clip
-                self.composition = new_comp_clip.GetFusionComp()
-                if not self.composition:
-                    print(f"Error: Failed to get Fusion composition from the newly created clip '{name}'.")
-                    return False
-
-                self.fusion_width = width
-                self.fusion_height = height
-                
-                print(f"Created new Fusion Composition clip: '{name}' in the Media Pool.")
-                return True
-            else:
-                print(f"Error: Could not create Fusion Composition clip '{name}' in the Media Pool.")
-                return False
-                
-        except Exception as e:
-            print(f"An unexpected error occurred while creating the composition: {e}")
-            return False
+    # Note: The create_new_composition method has been removed.
+    # The script now operates on the currently active Fusion composition.
     
     def get_next_node_position(self) -> tuple:
         """Get the next available node position"""
@@ -280,135 +253,318 @@ class FigmaToFusion:
             print(f"Error creating Text+ node: {e}")
             return None
     
-    def create_rectangle_node(self, element: Dict, figma_canvas: Dict) -> Optional[str]:
-        """Create a Rectangle (sRectangle) node for rectangle elements"""
-        node_name = f"Rectangle_{element['name']}"
+    def create_rectangle_node(self, element: Dict, figma_canvas: Dict) -> Optional[Any]:
+        """Create a Rectangle (sRectangle) node, handling fill and stroke."""
+        node_name = f"Rect_{element['name']}"
         
         if not self.resolve:
             print(f"Debug: Would create sRectangle node: {node_name}")
-            return node_name
+            return f"rect_{element['name']}"
+
+        fills = element.get('fills', [])
+        strokes = element.get('strokes', [])
         
-        try:
-            # Get node position
-            pos_x, pos_y = self.get_next_node_position()
+        fill_node = None
+        stroke_node = None
+
+        pos_x, pos_y = self.get_next_node_position()
+
+        # Create the stroke node (if a stroke exists)
+        if strokes and len(strokes) > 0:
+            stroke_color = strokes[0].get('color', {'r': 0, 'g': 0, 'b': 0, 'a': 1})
+            stroke_weight = element.get('strokeWeight', 1.0)
             
-            # Create Rectangle node
-            rect_node = self.composition.AddTool("sRectangle", pos_x, pos_y)
-            rect_node.SetAttrs({"TOOLS_Name": node_name})
+            stroke_node = self.composition.AddTool("sRectangle", pos_x, pos_y)
+            stroke_node.SetAttrs({"TOOLS_Name": f"{node_name}_Stroke"})
             
-            # Set position and size
             transform_data = self.figma_to_fusion_coords(
                 element['position']['x'], element['position']['y'],
                 figma_canvas['width'], figma_canvas['height'],
                 element['size']['width'], element['size']['height']
             )
+            stroke_node.Center = transform_data['Center']
+            stroke_node.Width = element['size']['width'] / self.fusion_width
+            stroke_node.Height = element['size']['height'] / self.fusion_height
             
-            rect_node.Center = transform_data['Center']
-            rect_node.Width = element['size']['width'] / figma_canvas['width']
-            rect_node.Height = element['size']['height'] / figma_canvas['height']
+            stroke_node.Red = stroke_color.get('r', 0)
+            stroke_node.Green = stroke_color.get('g', 0)
+            stroke_node.Blue = stroke_color.get('b', 0)
+            stroke_node.Alpha = stroke_color.get('a', 1)
+            stroke_node.SoftEdge = 0.001 # A little softness for antialiasing
             
-            # Set corner radius if available
             if element.get('cornerRadius') and isinstance(element['cornerRadius'], (int, float)):
-                corner_radius = element['cornerRadius'] / min(element['size']['width'], element['size']['height'])
-                rect_node.CornerRadius = corner_radius
+                 stroke_node.CornerRadius = element['cornerRadius'] / min(element['size']['width'], element['size']['height'])
+
+        # Create the fill node
+        if fills and len(fills) > 0 and fills[0].get('visible', True):
+            fill_color = fills[0].get('color', {'r': 1, 'g': 1, 'b': 1, 'a': 1})
             
-            # Set color from fills if available
-            fills = element.get('fills', [])
-            if fills and len(fills) > 0:
-                fill = fills[0]  # Use first fill
-                if fill.get('type') == 'SOLID' and fill.get('color'):
-                    color = fill['color']
-                    rect_node.Red = color.get('r', 1.0)
-                    rect_node.Green = color.get('g', 1.0)
-                    rect_node.Blue = color.get('b', 1.0)
-                    if color.get('a') is not None:
-                        rect_node.Alpha = color['a']
+            # Position fill node slightly offset to avoid overlap issues if no stroke
+            fill_pos_x = pos_x + 20 if stroke_node else pos_x
+            fill_pos_y = pos_y + 20 if stroke_node else pos_y
+
+            fill_node = self.composition.AddTool("sRectangle", fill_pos_x, fill_pos_y)
+            fill_node.SetAttrs({"TOOLS_Name": f"{node_name}_Fill"})
             
-            # Set opacity
-            if element.get('opacity', 1.0) < 1.0:
-                rect_node.Opacity = element['opacity']
+            transform_data = self.figma_to_fusion_coords(
+                element['position']['x'], element['position']['y'],
+                figma_canvas['width'], figma_canvas['height'],
+                element['size']['width'], element['size']['height']
+            )
+            fill_node.Center = transform_data['Center']
+
+            # Adjust size for stroke
+            stroke_weight = element.get('strokeWeight', 1.0) if stroke_node else 0
+            fill_width = (element['size']['width'] - 2 * stroke_weight) / self.fusion_width
+            fill_height = (element['size']['height'] - 2 * stroke_weight) / self.fusion_height
+            fill_node.Width = fill_width
+            fill_node.Height = fill_height
+
+            fill_node.Red = fill_color.get('r', 1)
+            fill_node.Green = fill_color.get('g', 1)
+            fill_node.Blue = fill_color.get('b', 1)
+            fill_node.Alpha = fill_color.get('a', 1)
+
+            if element.get('cornerRadius') and isinstance(element['cornerRadius'], (int, float)):
+                 fill_node.CornerRadius = (element['cornerRadius'] - stroke_weight) / min(element['size']['width'], element['size']['height'])
+
+        # Combine nodes
+        if stroke_node and fill_node:
+            print(f"Created sRectangle with Fill and Stroke: {node_name}")
+            return self.create_merge_node([stroke_node, fill_node], name=node_name)
+        elif fill_node:
+            print(f"Created sRectangle with Fill: {node_name}")
+            return fill_node
+        elif stroke_node:
+            print(f"Created sRectangle with Stroke only: {node_name}")
+            return stroke_node
+
+        return None
+
+    def create_ellipse_node(self, element: Dict, figma_canvas: Dict) -> Optional[Any]:
+        """Create a Ellipse (sEllipse) node, handling fill and stroke."""
+        node_name = f"Ellipse_{element['name']}"
+
+        if not self.resolve:
+            print(f"Debug: Would create sEllipse node: {node_name}")
+            return f"ellipse_{element['name']}"
+
+        fills = element.get('fills', [])
+        strokes = element.get('strokes', [])
+
+        fill_node = None
+        stroke_node = None
+
+        pos_x, pos_y = self.get_next_node_position()
+
+        if strokes and len(strokes) > 0:
+            stroke_color = strokes[0].get('color', {'r': 0, 'g': 0, 'b': 0, 'a': 1})
+            stroke_node = self.composition.AddTool("sEllipse", pos_x, pos_y)
+            stroke_node.SetAttrs({"TOOLS_Name": f"{node_name}_Stroke"})
             
-            print(f"Created sRectangle node: {node_name}")
-            return node_name
-            
-        except Exception as e:
-            print(f"Error creating sRectangle node: {e}")
-            return None
+            transform_data = self.figma_to_fusion_coords(
+                element['position']['x'], element['position']['y'],
+                figma_canvas['width'], figma_canvas['height'],
+                element['size']['width'], element['size']['height']
+            )
+            stroke_node.Center = transform_data['Center']
+            stroke_node.Width = element['size']['width'] / self.fusion_width
+            stroke_node.Height = element['size']['height'] / self.fusion_height
+
+            stroke_node.Red = stroke_color.get('r', 0)
+            stroke_node.Green = stroke_color.get('g', 0)
+            stroke_node.Blue = stroke_color.get('b', 0)
+            stroke_node.Alpha = stroke_color.get('a', 1)
+            stroke_node.SoftEdge = 0.001
+
+        if fills and len(fills) > 0 and fills[0].get('visible', True):
+            fill_color = fills[0].get('color', {'r': 1, 'g': 1, 'b': 1, 'a': 1})
+            fill_pos_x = pos_x + 20 if stroke_node else pos_x
+            fill_pos_y = pos_y + 20 if stroke_node else pos_y
+
+            fill_node = self.composition.AddTool("sEllipse", fill_pos_x, fill_pos_y)
+            fill_node.SetAttrs({"TOOLS_Name": f"{node_name}_Fill"})
+
+            transform_data = self.figma_to_fusion_coords(
+                element['position']['x'], element['position']['y'],
+                figma_canvas['width'], figma_canvas['height'],
+                element['size']['width'], element['size']['height']
+            )
+            fill_node.Center = transform_data['Center']
+
+            stroke_weight = element.get('strokeWeight', 1.0) if stroke_node else 0
+            fill_node.Width = (element['size']['width'] - 2 * stroke_weight) / self.fusion_width
+            fill_node.Height = (element['size']['height'] - 2 * stroke_weight) / self.fusion_height
+
+            fill_node.Red = fill_color.get('r', 1)
+            fill_node.Green = fill_color.get('g', 1)
+            fill_node.Blue = fill_color.get('b', 1)
+            fill_node.Alpha = fill_color.get('a', 1)
+
+        if stroke_node and fill_node:
+            print(f"Created sEllipse with Fill and Stroke: {node_name}")
+            return self.create_merge_node([stroke_node, fill_node], name=node_name)
+        elif fill_node:
+            print(f"Created sEllipse with Fill: {node_name}")
+            return fill_node
+        elif stroke_node:
+            print(f"Created sEllipse with Stroke only: {node_name}")
+            return stroke_node
+
+        return None
     
-    def create_merge_node(self, input_nodes: List[str], name: str = "Merge") -> Optional[str]:
-        """Create a Merge node to combine multiple inputs"""
+    def create_merge_node(self, input_nodes: List[Any], name: str = "Merge") -> Optional[Any]:
+        """Create a Merge node to combine multiple inputs."""
+        if not input_nodes:
+            return None
+        if len(input_nodes) == 1:
+            return input_nodes[0]
+
         node_name = f"Merge_{name}"
         
         if not self.resolve:
-            print(f"Debug: Would create Merge node: {node_name} with inputs: {input_nodes}")
-            return node_name
-        
+            print(f"Debug: Would create Merge node: {node_name} with {len(input_nodes)} inputs")
+            return f"merged_{name}" # Return a placeholder name
+
         try:
-            # Get node position
+            # Position the merge node
             pos_x, pos_y = self.get_next_node_position()
             
-            # Create Merge node
+            # Create the first merge node
             merge_node = self.composition.AddTool("Merge", pos_x, pos_y)
-            merge_node.SetAttrs({"TOOLS_Name": node_name})
+            merge_node.SetAttrs({"TOOLS_Name": f"{node_name}_1"})
             
-            print(f"Created Merge node: {node_name}")
-            return node_name
+            # Connect the first two nodes
+            merge_node.ConnectInput("Background", input_nodes[0])
+            merge_node.ConnectInput("Foreground", input_nodes[1])
+
+            last_merge_node = merge_node
+
+            # Chain additional merge nodes for more than 2 inputs
+            for i in range(2, len(input_nodes)):
+                pos_x, pos_y = self.get_next_node_position()
+                new_merge_node = self.composition.AddTool("Merge", pos_x, pos_y)
+                new_merge_node.SetAttrs({"TOOLS_Name": f"{node_name}_{i}"})
+
+                new_merge_node.ConnectInput("Background", last_merge_node)
+                new_merge_node.ConnectInput("Foreground", input_nodes[i])
+                last_merge_node = new_merge_node
+
+            print(f"Created Merge chain: {node_name}")
+            return last_merge_node
             
         except Exception as e:
             print(f"Error creating Merge node: {e}")
             return None
+
+    def apply_effects(self, parent_node: Any, effects: List[Dict]) -> Any:
+        """Apply a chain of effect nodes to a parent node."""
+        last_node = parent_node
+
+        for effect in effects:
+            effect_type = effect.get('type')
+            if not effect.get('visible', True):
+                continue
+
+            # Create and connect the new effect node
+            new_effect_node = None
+            if effect_type == 'LAYER_BLUR':
+                new_effect_node = self.composition.AddTool("Blur", self.node_x, self.node_y)
+                if new_effect_node:
+                    new_effect_node.Blur = effect.get('radius', 0.0) / 20.0 # Approximate conversion
+
+            elif effect_type == 'DROP_SHADOW':
+                new_effect_node = self.composition.AddTool("DropShadow", self.node_x, self.node_y)
+                if new_effect_node:
+                    color = effect.get('color', {})
+                    new_effect_node.Red = color.get('r', 0.0)
+                    new_effect_node.Green = color.get('g', 0.0)
+                    new_effect_node.Blue = color.get('b', 0.0)
+                    new_effect_node.Alpha = color.get('a', 1.0)
+                    new_effect_node.ShadowStrength = effect.get('spread', 0.0)
+                    new_effect_node.Blur = effect.get('radius', 0.0)
+                    offset = effect.get('offset', {})
+                    # This is a simplification, a more accurate approach would involve a Transform node
+                    new_effect_node.Distance = (offset.get('x', 0)**2 + offset.get('y', 0)**2)**0.5 / 100.0
+
+            if new_effect_node:
+                print(f"Applying {effect_type} to {last_node.GetAttrs('TOOLS_Name')}")
+                new_effect_node.ConnectInput("Input", last_node)
+                last_node = new_effect_node
+                # Move to next position
+                self.node_x += 80 # Small horizontal shift for effect nodes
+
+        return last_node
     
-    def process_element(self, element: Dict, figma_canvas: Dict) -> Optional[str]:
-        """Process a single Figma element and create corresponding Fusion node"""
+    def process_element(self, element: Dict, figma_canvas: Dict) -> Optional[Any]:
+        """
+        Process a single Figma element and create a corresponding Fusion node chain.
+        Returns the last node in the chain for this element.
+        """
         element_type = element.get('type', '').upper()
         element_name = element.get('name', 'Unknown')
         
         print(f"Processing element: {element_name} (Type: {element_type})")
         
-        # Handle different element types
+        base_node = None
+        # Handle different element types to create the base node
         if element_type == 'TEXT':
-            return self.create_text_node(element, figma_canvas)
+            base_node = self.create_text_node(element, figma_canvas)
         
         elif element_type == 'RECTANGLE':
-            return self.create_rectangle_node(element, figma_canvas)
+            base_node = self.create_rectangle_node(element, figma_canvas)
+
+        elif element_type == 'ELLIPSE':
+            base_node = self.create_ellipse_node(element, figma_canvas)
         
         elif element_type in ['FRAME', 'GROUP', 'COMPONENT', 'INSTANCE']:
-            # For containers, create nodes for children and merge them
-            child_nodes = []
+            # For containers, recursively process children and merge them
+            child_outputs = []
             if element.get('children'):
                 for child in element['children']:
-                    child_node = self.process_element(child, figma_canvas)
-                    if child_node:
-                        child_nodes.append(child_node)
+                    child_output_node = self.process_element(child, figma_canvas)
+                    if child_output_node:
+                        child_outputs.append(child_output_node)
             
-            # If we have an image, create a loader for the container as well
+            # If the container itself has an image, treat it as another layer
             if element.get('imageData'):
                 image_path = self.save_base64_image(element['imageData'], element_name)
                 if image_path:
                     container_loader = self.create_loader_node(image_path, element, figma_canvas)
                     if container_loader:
-                        child_nodes.append(container_loader)
+                        child_outputs.append(container_loader)
             
-            # Merge child nodes if we have multiple
-            if len(child_nodes) > 1:
-                return self.create_merge_node(child_nodes, element_name)
-            elif len(child_nodes) == 1:
-                return child_nodes[0]
+            # Merge all child outputs
+            if len(child_outputs) > 1:
+                base_node = self.create_merge_node(child_outputs, element_name)
+            elif len(child_outputs) == 1:
+                base_node = child_outputs[0]
         
         else:
             # For other types (ELLIPSE, POLYGON, STAR, VECTOR, IMAGE, etc.), 
-            # create a Loader node with the exported image
+            # create a Loader node with the exported image if available
             if element.get('imageData'):
                 image_path = self.save_base64_image(element['imageData'], element_name)
                 if image_path:
-                    return self.create_loader_node(image_path, element, figma_canvas)
+                    base_node = self.create_loader_node(image_path, element, figma_canvas)
+
+        if not base_node:
+            print(f"Warning: Could not create a base node for element {element_name} (Type: {element_type})")
+            return None
+
+        # Apply effects to the base node
+        effects = element.get('effects', [])
+        final_node = self.apply_effects(base_node, effects)
         
-        print(f"Warning: Could not process element {element_name} (Type: {element_type})")
-        return None
+        return final_node
     
     def import_figma_composition(self, data_id: Optional[str] = None) -> bool:
-        """Main method to import Figma data and create Fusion composition"""
+        """Main method to import Figma data into the active Fusion composition."""
         print("Starting Figma to Fusion import...")
+
+        if not self.composition:
+            print("Initialization failed. Cannot proceed with import.")
+            return False
         
         # Fetch data from bridge
         figma_data = self.fetch_figma_data(data_id)
@@ -417,16 +573,8 @@ class FigmaToFusion:
         
         print(f"Retrieved data with {len(figma_data.get('elements', []))} elements")
         
-        # Create new composition
-        canvas_size = figma_data.get('canvasSize', {'width': 1920, 'height': 1080})
-        composition_name = f"Figma_Import_{figma_data.get('timestamp', '').replace(':', '-').replace('.', '-')}"
-        
-        if not self.create_new_composition(
-            composition_name, 
-            canvas_size['width'], 
-            canvas_size['height']
-        ):
-            return False
+        # Get canvas size from Figma data for coordinate conversion
+        canvas_size = figma_data.get('canvasSize', {'width': self.fusion_width, 'height': self.fusion_height})
         
         # Process elements
         root_nodes = []
