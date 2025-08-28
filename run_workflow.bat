@@ -19,13 +19,12 @@ echo.
 echo  🎬 Logix - Figma to DaVinci Automated Workflow
 echo.
 echo =======================================================
-echo [1/4] Setting up the environment...
+echo [1/2] Setting up the Bridge Server environment...
 echo This may take a moment on the first run.
 echo.
 
 :: --- Setup and run Flask Bridge Server ---
 cd flask-bridge
-echo Checking server dependencies...
 if not exist venv (
     echo Creating server virtual environment...
     python -m venv venv
@@ -33,38 +32,23 @@ if not exist venv (
     call venv\\Scripts\\activate.bat
     pip install -r requirements.txt
 )
-echo Starting Flask bridge server in a new window...
-START "Logix Bridge Server" cmd /c "title Logix Bridge Server && call venv\\Scripts\\activate.bat && echo Server is running at http://localhost:5000 && python app.py"
 cd ..
 echo.
 
-echo [2/4] Waiting for server to initialize...
-timeout /t 5 /nobreak > nul
+echo [2/2] Starting the Bridge Server...
+START "Logix Bridge Server" cmd /c "title Logix Bridge Server && cd flask-bridge && call venv\\Scripts\\activate.bat && echo Server is running at http://localhost:5000 && python app.py"
 echo.
-
-:: --- Setup and run DaVinci Resolve Import Script ---
-echo [3/4] Setting up DaVinci Resolve import script...
-cd davinci-script
-echo Checking import script dependencies...
-if not exist venv (
-    echo Creating script virtual environment...
-    python -m venv venv
-    echo Installing script requirements...
-    call venv\\Scripts\\activate.bat
-    pip install -r requirements.txt
-)
+echo ============================================================================
 echo.
-echo [4/4] Running DaVinci Resolve import script...
-echo Please follow the prompts in this window.
+echo  ✅ The Logix Bridge Server has been started in a new window.
+echo     You can minimize the server window, but do not close it.
 echo.
-call venv\\Scripts\\activate.bat
-python figma_to_fusion.py
-cd ..
+echo  Next Steps:
+echo  1. Open Figma and use the 'Logix' plugin to export your elements.
+echo  2. Open DaVinci Resolve and run the 'figma_to_fusion' script.
 echo.
-
+echo ============================================================================
 echo.
-echo Workflow script finished.
-echo The server window will remain open. You can close it manually when you are done.
 echo This window will now close.
-timeout /t 15
+timeout /t 10
 exit

@@ -128,43 +128,46 @@ class FigmaToFusion:
             return None
     
     def create_new_composition(self, name: str, width: int = 1920, height: int = 1080, frame_rate: float = 24.0) -> bool:
-        """Create a new Fusion composition"""
+        """
+        Create a new Fusion Composition clip in the Media Pool.
+        This is a more robust method than creating a new timeline.
+        """
         if not self.resolve:
-            print("Debug: Would create new composition:", name)
+            print(f"Debug: Would create new Fusion Composition clip: {name}")
+            self.composition = "debug_comp"  # Placeholder for debug mode
             return True
         
         try:
-            # Create new timeline for the composition
+            # Define settings for the new Fusion Composition
+            comp_settings = {
+                "Name": name,
+                "Width": width,
+                "Height": height,
+                "Rate": frame_rate,
+            }
+
+            # Create the Fusion Composition clip in the root folder of the Media Pool
             media_pool_folder = self.media_pool.GetRootFolder()
-            new_timeline = self.media_pool.CreateEmptyTimeline(name)
-            
-            if new_timeline:
-                self.current_timeline = new_timeline
-                self.project.SetCurrentTimeline(new_timeline)
-                
-                # Set timeline properties
-                timeline_settings = {
-                    "timelineResolutionWidth": str(width),
-                    "timelineResolutionHeight": str(height),
-                    "timelineFrameRate": str(frame_rate)
-                }
-                new_timeline.SetSetting(timeline_settings)
-                
-                # Switch to Fusion page and get composition
-                self.resolve.OpenPage("fusion")
-                self.composition = self.fusion_page.GetCurrentComp()
-                
+            new_comp_clip = self.media_pool.CreateFusionComposition(media_pool_folder, comp_settings)
+
+            if new_comp_clip:
+                # Get the actual composition object from the clip
+                self.composition = new_comp_clip.GetFusionComp()
+                if not self.composition:
+                    print(f"Error: Failed to get Fusion composition from the newly created clip '{name}'.")
+                    return False
+
                 self.fusion_width = width
                 self.fusion_height = height
                 
-                print(f"Created new composition: {name} ({width}x{height} @ {frame_rate}fps)")
+                print(f"Created new Fusion Composition clip: '{name}' in the Media Pool.")
                 return True
             else:
-                print("Error: Could not create timeline")
+                print(f"Error: Could not create Fusion Composition clip '{name}' in the Media Pool.")
                 return False
                 
         except Exception as e:
-            print(f"Error creating composition: {e}")
+            print(f"An unexpected error occurred while creating the composition: {e}")
             return False
     
     def get_next_node_position(self) -> tuple:
