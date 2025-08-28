@@ -5,7 +5,8 @@ This script fetches JSON data from the Flask bridge and creates a Fusion composi
 """
 
 import json
-import requests
+import urllib.request
+import urllib.error
 import base64
 import os
 import tempfile
@@ -69,31 +70,35 @@ class FigmaToFusion:
             return False
     
     def fetch_figma_data(self, data_id: Optional[str] = None) -> Optional[Dict]:
-        """Fetch JSON data from Flask bridge"""
+        """Fetch JSON data from Flask bridge using built-in urllib"""
         try:
             url = f"{self.bridge_url}/get_data"
             if data_id:
                 url += f"?id={data_id}"
             
             print(f"Fetching data from: {url}")
-            response = requests.get(url, timeout=10)
             
-            if response.status_code == 200:
-                result = response.json()
-                if result.get('success'):
-                    return result['data']
+            with urllib.request.urlopen(url, timeout=10) as response:
+                if response.status == 200:
+                    response_text = response.read().decode('utf-8')
+                    result = json.loads(response_text)
+                    if result.get('success'):
+                        return result['data']
+                    else:
+                        print(f"Bridge server error: {result.get('error', 'Unknown error')}")
                 else:
-                    print(f"Bridge server error: {result.get('error', 'Unknown error')}")
+                    print(f"HTTP Error {response.status}: {response.reason}")
+
+        except urllib.error.URLError as e:
+            if isinstance(e.reason, ConnectionRefusedError):
+                print("Error: Could not connect to Flask bridge server. Is it running on localhost:5000?")
             else:
-                print(f"HTTP Error {response.status_code}: {response.text}")
-            
-        except requests.exceptions.ConnectionError:
-            print("Error: Could not connect to Flask bridge server. Is it running on localhost:5000?")
-        except requests.exceptions.Timeout:
-            print("Error: Request timed out")
+                print(f"Error: Could not connect to the server. Reason: {e.reason}")
+        except json.JSONDecodeError:
+            print("Error: Failed to parse JSON response from the server.")
         except Exception as e:
-            print(f"Error fetching data: {e}")
-        
+            print(f"An unexpected error occurred while fetching data: {e}")
+
         return None
     
     def save_base64_image(self, base64_data: str, element_name: str) -> Optional[str]:
