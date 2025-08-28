@@ -607,6 +607,18 @@ class FigmaToFusion:
 
 def main():
     """Main entry point"""
+    # Safety check: Ensure the script is run from within DaVinci Resolve
+    if not resolve:
+        print("="*60)
+        print("❌ ERROR: DaVinci Resolve API Not Found!")
+        print("This script must be run from the menu inside DaVinci Resolve.")
+        print("Please do not run this file directly.")
+        print("\nInstructions:")
+        print("1. Start the server using the 'run_workflow.bat' script.")
+        print("2. In DaVinci Resolve, go to: Workspace > Scripts > Comp > figma_to_fusion")
+        print("="*60)
+        return 1 # Exit with an error code
+
     print("=== Figma to DaVinci Resolve Bridge ===")
     print("Importing Figma elements into Fusion...")
     

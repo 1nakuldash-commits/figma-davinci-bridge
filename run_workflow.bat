@@ -43,12 +43,14 @@ echo.
 echo  ✅ The Logix Bridge Server has been started in a new window.
 echo     You can minimize the server window, but do not close it.
 echo.
-echo  Next Steps:
-echo  1. Open Figma and use the 'Logix' plugin to export your elements.
-echo  2. Open DaVinci Resolve and run the 'figma_to_fusion' script.
+echo  ========================= IMPORTANT NEXT STEP ============================
 echo.
-echo ============================================================================
+echo  Your work is not finished! You must now go into DaVinci Resolve.
 echo.
-echo This window will now close.
-timeout /t 10
+echo  From the top menu, run the script at:
+echo  Workspace -> Scripts -> Comp -> figma_to_fusion
+echo.
+echo  ============================================================================
+echo.
+PAUSE
 exit
