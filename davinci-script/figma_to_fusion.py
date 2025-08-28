@@ -474,7 +474,7 @@ def main():
         
         if success:
             print("✅ Import completed successfully!")
-            input("Press Enter to cleanup temporary files and exit...")
+            # The input() call is removed as it causes a RuntimeError in the DaVinci Resolve environment
         else:
             print("❌ Import failed!")
             return 1
