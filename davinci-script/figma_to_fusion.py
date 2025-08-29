@@ -607,15 +607,22 @@ class FigmaToFusion:
 
 def main():
     """Main entry point"""
-    # Safety check: Ensure the script is run from within DaVinci Resolve
-    if not resolve:
+    # More robust safety check for the DaVinci Resolve API
+    try:
+        # A simple check for 'resolve' is not enough, as a dummy object can be returned.
+        # A real API call is needed to confirm the connection.
+        project_manager = resolve.GetProjectManager()
+        if not project_manager:
+            raise AttributeError # Trigger the error handling block
+    except (ImportError, AttributeError, NameError):
         print("="*60)
-        print("❌ ERROR: DaVinci Resolve API Not Found!")
+        print("❌ ERROR: DaVinci Resolve API Not Found or Inaccessible!")
         print("This script must be run from the menu inside DaVinci Resolve.")
-        print("Please do not run this file directly.")
-        print("\nInstructions:")
-        print("1. Start the server using the 'run_workflow.bat' script.")
-        print("2. In DaVinci Resolve, go to: Workspace > Scripts > Comp > figma_to_fusion")
+        print("Please do not run this file directly from your computer.")
+        print("\nCorrect Workflow:")
+        print("1. Run the 'run_workflow.bat' script to start the server.")
+        print("2. In DaVinci Resolve, go to the top menu:")
+        print("   Workspace -> Scripts -> Comp -> figma_to_fusion")
         print("="*60)
         return 1 # Exit with an error code
 
