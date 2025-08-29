@@ -52,14 +52,6 @@ interface ExportPayload {
 // Show UI
 figma.showUI(__html__, { width: 300, height: 400 });
 
-// Listen for selection changes
-figma.on('selectionchange', () => {
-  figma.ui.postMessage({
-    type: 'selectionChange',
-    selectionCount: figma.currentPage.selection.length,
-  });
-});
-
 async function exportSelectedElements(): Promise<ExportPayload> {
   const selection = figma.currentPage.selection;
   
@@ -162,7 +154,7 @@ async function processNode(node: SceneNode): Promise<FigmaElement | null> {
 }
 
 async function processGeometricNode(node: GeometryMixin & SceneNode, baseElement: Partial<FigmaElement>): Promise<FigmaElement> {
-  const element = Object.assign({}, baseElement) as FigmaElement;
+  const element = { ...baseElement } as FigmaElement;
   
   // Add geometric properties
   element.fills = node.fills;
@@ -189,7 +181,7 @@ async function processGeometricNode(node: GeometryMixin & SceneNode, baseElement
 }
 
 async function processTextNode(node: TextNode, baseElement: Partial<FigmaElement>): Promise<FigmaElement> {
-  const element = Object.assign({}, baseElement) as FigmaElement;
+  const element = { ...baseElement } as FigmaElement;
   
   // Add text properties
   element.characters = node.characters;
@@ -212,7 +204,7 @@ async function processTextNode(node: TextNode, baseElement: Partial<FigmaElement
 }
 
 async function processContainerNode(node: ChildrenMixin & SceneNode, baseElement: Partial<FigmaElement>): Promise<FigmaElement> {
-  const element = Object.assign({}, baseElement) as FigmaElement;
+  const element = { ...baseElement } as FigmaElement;
   
   // Add container properties
   if ('fills' in node) {
@@ -247,7 +239,7 @@ async function processContainerNode(node: ChildrenMixin & SceneNode, baseElement
 }
 
 async function processImageNode(node: SceneNode, baseElement: Partial<FigmaElement>): Promise<FigmaElement> {
-  const element = Object.assign({}, baseElement) as FigmaElement;
+  const element = { ...baseElement } as FigmaElement;
   
   // Export the image
   try {
@@ -261,7 +253,7 @@ async function processImageNode(node: SceneNode, baseElement: Partial<FigmaEleme
 }
 
 async function processGenericNode(node: SceneNode, baseElement: Partial<FigmaElement>): Promise<FigmaElement> {
-  const element = Object.assign({}, baseElement) as FigmaElement;
+  const element = { ...baseElement } as FigmaElement;
   
   // Export as image
   try {
@@ -332,12 +324,6 @@ async function sendToFlaskBridge(payload: ExportPayload): Promise<void> {
 // Handle UI messages
 figma.ui.onmessage = async (msg) => {
   switch (msg.type) {
-    case 'getSelection':
-      figma.ui.postMessage({
-        type: 'selectionChange',
-        selectionCount: figma.currentPage.selection.length,
-      });
-      break;
     case 'export':
       try {
         figma.ui.postMessage({

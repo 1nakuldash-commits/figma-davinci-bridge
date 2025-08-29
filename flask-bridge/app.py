@@ -6,9 +6,7 @@ import threading
 from datetime import datetime
 
 app = Flask(__name__)
-# Enable CORS for all routes, allowing all origins.
-# This is necessary for the Figma plugin to communicate with the local server.
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app)  # Enable CORS for all routes
 
 # Global storage for JSON data (in production, use a database)
 data_store = {}
