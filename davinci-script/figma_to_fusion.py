@@ -33,8 +33,8 @@ class FigmaToFusion:
         
         self.node_x = 0
         self.node_y = 0
-        self.node_spacing_x = 300
-        self.node_spacing_y = 200
+        self.node_spacing_x = 150
+        self.node_spacing_y = 100
         
         self.fusion_width = 1920
         self.fusion_height = 1080
@@ -189,10 +189,12 @@ class FigmaToFusion:
             fill_node.SetAttrs({"TOOLS_Name": f"{node_name}_Fill"})
             transform_data = self.figma_to_fusion_coords(element['position']['x'], element['position']['y'], figma_canvas['width'], figma_canvas['height'], element['size']['width'], element['size']['height'])
             fill_node.Center = transform_data['Center']
-            stroke_weight = element.get('strokeWeight', 1.0) if stroke_node else 0
+            stroke_weight = element.get('strokeWeight') or 0 if stroke_node else 0
             fill_node.Width, fill_node.Height = (element['size']['width'] - 2 * stroke_weight) / self.fusion_width, (element['size']['height'] - 2 * stroke_weight) / self.fusion_height
             fill_node.Red, fill_node.Green, fill_node.Blue, fill_node.Alpha = fill_color.get('r', 1), fill_color.get('g', 1), fill_color.get('b', 1), fill_color.get('a', 1)
-            if element.get('cornerRadius'): fill_node.CornerRadius = (element['cornerRadius'] - stroke_weight) / min(element['size']['width'], element['size']['height'])
+            corner_radius = element.get('cornerRadius')
+            if corner_radius is not None:
+                fill_node.CornerRadius = (corner_radius - stroke_weight) / min(element['size']['width'], element['size']['height'])
         if stroke_node and fill_node: return self.create_merge_node([stroke_node, fill_node], name=node_name)
         return fill_node or stroke_node
 
@@ -216,7 +218,7 @@ class FigmaToFusion:
             fill_node.SetAttrs({"TOOLS_Name": f"{node_name}_Fill"})
             transform_data = self.figma_to_fusion_coords(element['position']['x'], element['position']['y'], figma_canvas['width'], figma_canvas['height'], element['size']['width'], element['size']['height'])
             fill_node.Center = transform_data['Center']
-            stroke_weight = element.get('strokeWeight', 1.0) if stroke_node else 0
+            stroke_weight = element.get('strokeWeight') or 0 if stroke_node else 0
             fill_node.Width, fill_node.Height = (element['size']['width'] - 2 * stroke_weight) / self.fusion_width, (element['size']['height'] - 2 * stroke_weight) / self.fusion_height
             fill_node.Red, fill_node.Green, fill_node.Blue, fill_node.Alpha = fill_color.get('r', 1), fill_color.get('g', 1), fill_color.get('b', 1), fill_color.get('a', 1)
         if stroke_node and fill_node: return self.create_merge_node([stroke_node, fill_node], name=node_name)
@@ -265,22 +267,72 @@ class FigmaToFusion:
         return last_node
     
     def process_element(self, element: Dict, figma_canvas: Dict) -> Optional[Any]:
+        """
+        Process a single Figma element and create a corresponding Fusion node chain.
+        Handles basic elements, groups, and masks.
+        """
         element_type = element.get('type', '').upper()
+        element_name = element.get('name', 'Unknown')
+
+        # Handle Groups and Frames, which may contain masks
+        if element_type in ['FRAME', 'GROUP', 'COMPONENT', 'INSTANCE']:
+            children = element.get('children', [])
+            # In Figma, a mask is the layer below the content it masks.
+            # We iterate backwards to find the mask and apply it to the item above it.
+            i = len(children) - 1
+            child_nodes = []
+            while i >= 0:
+                child = children[i]
+                if child.get('isMask') and i > 0:
+                    mask_node_data = child
+                    content_node_data = children[i-1] # The layer above the mask is masked by it
+
+                    print(f"  - Found mask '{mask_node_data.get('name')}' applied to '{content_node_data.get('name')}'")
+
+                    # Process the content and the mask shape
+                    content_node = self.process_element(content_node_data, figma_canvas)
+                    mask_shape_node = self.process_element(mask_node_data, figma_canvas)
+
+                    if content_node and mask_shape_node:
+                        # Create a merge, connect content to foreground, mask to mask input
+                        merge_node = self.composition.AddTool("Merge")
+                        if merge_node:
+                            merge_node.ConnectInput("Foreground", content_node)
+                            merge_node.ConnectInput("Mask", mask_shape_node)
+                            merge_node.SetInput("Operator", "In") # Use 'In' to apply the mask
+                            child_nodes.insert(0, merge_node) # Add the merged result to the list
+                        else:
+                            child_nodes.insert(0, content_node) # Failsafe
+                    i -= 2 # We processed two children (mask + content), so skip both
+                else:
+                    node = self.process_element(child, figma_canvas)
+                    if node:
+                        child_nodes.insert(0, node) # Add to the beginning to maintain layer order
+                    i -= 1
+
+            if len(child_nodes) > 1:
+                return self.create_merge_node(child_nodes, element_name)
+            elif len(child_nodes) == 1:
+                return child_nodes[0]
+            return None
+
+        # Handle basic element types
         base_node = None
-        if element_type == 'TEXT': base_node = self.create_text_node(element, figma_canvas)
-        elif element_type == 'RECTANGLE': base_node = self.create_rectangle_node(element, figma_canvas)
-        elif element_type == 'ELLIPSE': base_node = self.create_ellipse_node(element, figma_canvas)
-        elif element_type in ['FRAME', 'GROUP', 'COMPONENT', 'INSTANCE']:
-            child_outputs = [self.process_element(child, figma_canvas) for child in element.get('children', []) if self.process_element(child, figma_canvas)]
-            if element.get('imageData'):
-                image_path = self.save_base64_image(element['imageData'], element['name'])
-                if image_path: child_outputs.append(self.create_loader_node(image_path, element, figma_canvas))
-            if len(child_outputs) > 1: base_node = self.create_merge_node(child_outputs, element['name'])
-            elif len(child_outputs) == 1: base_node = child_outputs[0]
+        if element_type == 'TEXT':
+            base_node = self.create_text_node(element, figma_canvas)
+        elif element_type == 'RECTANGLE':
+            base_node = self.create_rectangle_node(element, figma_canvas)
+        elif element_type == 'ELLIPSE':
+            base_node = self.create_ellipse_node(element, figma_canvas)
         elif element.get('imageData'):
-            image_path = self.save_base64_image(element['imageData'], element['name'])
-            if image_path: base_node = self.create_loader_node(image_path, element, figma_canvas)
-        if not base_node: return None
+            image_path = self.save_base64_image(element['imageData'], element_name)
+            if image_path:
+                base_node = self.create_loader_node(image_path, element, figma_canvas)
+
+        if not base_node:
+            return None
+
+        # Apply effects to the created node
         return self.apply_effects(base_node, element.get('effects', []))
     
     def import_figma_composition(self, data_id: Optional[str] = None) -> bool:
