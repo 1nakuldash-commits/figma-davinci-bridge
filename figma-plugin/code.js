@@ -1,15 +1,14 @@
 // Figma Plugin: Export to DaVinci Resolve Bridge
-// Clean JavaScript version
+// This plugin exports selected elements with their properties and images
 
 // Show UI
 figma.showUI(__html__, { width: 300, height: 400 });
 
-// Track selection changes
+// Listen for selection changes
 figma.on('selectionchange', () => {
-  const selectionCount = figma.currentPage.selection.length;
   figma.ui.postMessage({
     type: 'selectionChange',
-    selectionCount: selectionCount
+    selectionCount: figma.currentPage.selection.length,
   });
 });
 
@@ -21,7 +20,7 @@ async function exportSelectedElements() {
       type: 'error',
       message: 'Please select at least one element to export.'
     });
-    return null;
+    throw new Error('No elements selected');
   }
 
   // Get canvas bounds
@@ -36,7 +35,7 @@ async function exportSelectedElements() {
     elements: [],
     metadata: {
       figmaFileId: figma.fileKey || 'unknown',
-      figmaFileName: figma.root.name || 'Figma Export',
+      figmaFileName: 'Figma Export',
       selectedCount: selection.length,
       exportSettings: {
         format: 'PNG',
@@ -46,24 +45,17 @@ async function exportSelectedElements() {
   };
 
   // Process each selected element
-  let processedCount = 0;
   for (const node of selection) {
     try {
-      figma.ui.postMessage({
-        type: 'progress',
-        message: `Processing element ${processedCount + 1} of ${selection.length}: ${node.name}`
-      });
-
       const element = await processNode(node);
       if (element) {
         payload.elements.push(element);
-        processedCount++;
       }
     } catch (error) {
       console.error(`Error processing node ${node.name}:`, error);
       figma.ui.postMessage({
         type: 'warning',
-        message: `Could not process element: ${node.name} (${error.message})`
+        message: `Could not process element: ${node.name}`
       });
     }
   }
@@ -77,8 +69,8 @@ async function processNode(node) {
     name: node.name,
     type: node.type,
     visible: node.visible,
-    opacity: 'opacity' in node ? node.opacity : 1.0,
-    blendMode: 'blendMode' in node ? node.blendMode : 'NORMAL',
+    opacity: node.opacity,
+    blendMode: node.blendMode,
     position: {
       x: node.x,
       y: node.y
@@ -97,79 +89,68 @@ async function processNode(node) {
   // Process different node types
   switch (node.type) {
     case 'RECTANGLE':
-      return await processRectangle(node, baseElement);
+    case 'ELLIPSE':
+    case 'POLYGON':
+    case 'STAR':
+    case 'VECTOR':
+      return await processGeometricNode(node, baseElement);
     
     case 'TEXT':
-      return await processText(node, baseElement);
+      return await processTextNode(node, baseElement);
     
     case 'FRAME':
     case 'GROUP':
     case 'COMPONENT':
     case 'INSTANCE':
-      return await processContainer(node, baseElement);
+      return await processContainerNode(node, baseElement);
+
+    case 'IMAGE':
+      return await processImageNode(node, baseElement);
     
     default:
       // For other types, export as image
-      return await processGeneric(node, baseElement);
+      return await processGenericNode(node, baseElement);
   }
 }
 
-async function processRectangle(node, baseElement) {
-  const element = { ...baseElement };
+async function processGeometricNode(node, baseElement) {
+  const element = Object.assign({}, baseElement);
   
-  // Add rectangle-specific properties safely
-  if ('fills' in node) {
-    element.fills = node.fills;
-  }
-  if ('strokes' in node) {
-    element.strokes = node.strokes;
-  }
-  if ('strokeWeight' in node) {
-    element.strokeWeight = node.strokeWeight;
-  }
-  if ('cornerRadius' in node) {
+  // Add geometric properties
+  element.fills = node.fills;
+  element.strokes = node.strokes;
+  element.strokeWeight = node.strokeWeight;
+
+  // Add corner radius for rectangles
+  if (node.type === 'RECTANGLE' && 'cornerRadius' in node) {
     element.cornerRadius = node.cornerRadius;
   }
-  if ('effects' in node) {
-    element.effects = node.effects;
-  }
+
+  // Add effects
+  element.effects = node.effects;
   
   // Export as image
   try {
     const imageData = await exportNodeAsImage(node);
     element.imageData = imageData;
   } catch (error) {
-    console.warn(`Could not export image for rectangle ${node.name}:`, error);
+    console.warn(`Could not export image for ${node.name}:`, error);
   }
   
   return element;
 }
 
-async function processText(node, baseElement) {
-  const element = { ...baseElement };
+async function processTextNode(node, baseElement) {
+  const element = Object.assign({}, baseElement);
   
-  // Add text properties safely
-  if ('characters' in node) {
-    element.characters = node.characters;
-  }
-  if ('fontSize' in node) {
-    element.fontSize = node.fontSize;
-  }
-  if ('fontName' in node) {
-    element.fontName = node.fontName;
-  }
-  if ('textAlignHorizontal' in node) {
-    element.textAlignHorizontal = node.textAlignHorizontal;
-  }
-  if ('textAlignVertical' in node) {
-    element.textAlignVertical = node.textAlignVertical;
-  }
-  if ('fills' in node) {
-    element.fills = node.fills;
-  }
-  if ('effects' in node) {
-    element.effects = node.effects;
-  }
+  // Add text properties
+  element.characters = node.characters;
+  element.fontSize = node.fontSize;
+  element.fontName = node.fontName;
+  element.textAlignHorizontal = node.textAlignHorizontal;
+  element.textAlignVertical = node.textAlignVertical;
+  element.fills = node.fills;
+  element.effects = node.effects;
   
   // Export text as image for positioning reference
   try {
@@ -182,10 +163,10 @@ async function processText(node, baseElement) {
   return element;
 }
 
-async function processContainer(node, baseElement) {
-  const element = { ...baseElement };
+async function processContainerNode(node, baseElement) {
+  const element = Object.assign({}, baseElement);
   
-  // Add container properties safely
+  // Add container properties
   if ('fills' in node) {
     element.fills = node.fills;
   }
@@ -193,18 +174,16 @@ async function processContainer(node, baseElement) {
     element.effects = node.effects;
   }
   
-  // Process children if they exist
+  // Process children
   element.children = [];
-  if ('children' in node && node.children) {
-    for (const child of node.children) {
-      try {
-        const childElement = await processNode(child);
-        if (childElement) {
-          element.children.push(childElement);
-        }
-      } catch (error) {
-        console.warn(`Could not process child ${child.name}:`, error);
+  for (const child of node.children) {
+    try {
+      const childElement = await processNode(child);
+      if (childElement) {
+        element.children.push(childElement);
       }
+    } catch (error) {
+      console.warn(`Could not process child ${child.name}:`, error);
     }
   }
   
@@ -219,8 +198,22 @@ async function processContainer(node, baseElement) {
   return element;
 }
 
-async function processGeneric(node, baseElement) {
-  const element = { ...baseElement };
+async function processImageNode(node, baseElement) {
+  const element = Object.assign({}, baseElement);
+
+  // Export the image
+  try {
+    const imageData = await exportNodeAsImage(node);
+    element.imageData = imageData;
+  } catch (error) {
+    console.warn(`Could not export image ${node.name}:`, error);
+  }
+
+  return element;
+}
+
+async function processGenericNode(node, baseElement) {
+  const element = Object.assign({}, baseElement);
   
   // Export as image
   try {
@@ -247,67 +240,80 @@ async function exportNodeAsImage(node) {
     const base64 = figma.base64Encode(bytes);
     return `data:image/png;base64,${base64}`;
   } catch (error) {
-    throw new Error(`Failed to export image: ${error.message}`);
+    throw new Error(`Failed to export image: ${error}`);
   }
 }
 
 async function sendToFlaskBridge(payload) {
   figma.ui.postMessage({
     type: 'progress',
-    message: 'Preparing data for export...'
+    message: 'Sending data to bridge server...'
   });
 
-  // Log the payload for manual use
-  console.log('=== FIGMA EXPORT DATA ===');
-  console.log('Copy this JSON data and send it to your bridge server:');
-  console.log('POST http://localhost:5000/send_data');
-  console.log('Content-Type: application/json');
-  console.log('');
-  console.log(JSON.stringify(payload, null, 2));
-  console.log('=== END EXPORT DATA ===');
+  try {
+    const response = await fetch('http://localhost:5000/send_data', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload)
+    });
 
-  figma.ui.postMessage({
-    type: 'success',
-    message: `Exported ${payload.elements.length} elements! Check console (F12) for JSON data.`
-  });
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `HTTP ${response.status}`);
+    }
+
+    const result = await response.json();
+
+    figma.ui.postMessage({
+      type: 'success',
+      message: `Successfully sent ${payload.elements.length} elements to bridge server!`,
+      data: result
+    });
+
+  } catch (error) {
+    figma.ui.postMessage({
+      type: 'error',
+      message: `Failed to send data to bridge server: ${error.message}`
+    });
+    throw error;
+  }
 }
 
 // Handle UI messages
 figma.ui.onmessage = async (msg) => {
-  try {
-    switch (msg.type) {
-      case 'export':
+  switch (msg.type) {
+    case 'getSelection':
+      figma.ui.postMessage({
+        type: 'selectionChange',
+        selectionCount: figma.currentPage.selection.length,
+      });
+      break;
+    case 'export':
+      try {
         figma.ui.postMessage({
           type: 'progress',
           message: 'Exporting selected elements...'
         });
         
         const payload = await exportSelectedElements();
-        if (payload) {
-          await sendToFlaskBridge(payload);
-        }
-        break;
+        await sendToFlaskBridge(payload);
         
-      case 'getSelection':
-        const selectionCount = figma.currentPage.selection.length;
+      } catch (error) {
+        console.error('Export error:', error);
         figma.ui.postMessage({
-          type: 'selectionChange',
-          selectionCount: selectionCount
+          type: 'error',
+          message: error.message || 'An unknown error occurred during export.'
         });
-        break;
+      }
+      break;
 
-      case 'close':
-        figma.closePlugin();
-        break;
+    case 'close':
+      figma.closePlugin();
+      break;
 
-      default:
-        console.warn('Unknown message type:', msg.type);
-    }
-  } catch (error) {
-    console.error('Plugin error:', error);
-    figma.ui.postMessage({
-      type: 'error',
-      message: `Plugin error: ${error.message}`
-    });
+    default:
+      console.warn('Unknown message type:', msg.type);
   }
 };
